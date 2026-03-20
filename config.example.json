@@ -1,0 +1,9 @@
+{
+  "agent_id": "YOUR_UNIQUE_ID",
+  "eth_wallet": "0xYourEthWalletAddress",
+  "compute_capability": "GPU",
+  "max_vcus": 1000,
+  "sleep_interval": 2,
+  "auto_set_wallet": true,
+  "log_level": "INFO"
+}

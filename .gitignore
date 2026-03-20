@@ -1,0 +1,11 @@
+# Peanut Miner Gitignore
+keys.json
+miner.log
+__pycache__/
+*.pyc
+.env
+.idea/
+.vscode/
+
+# Ignore config if you don't want to leak your agent_id/wallet
+config.json
