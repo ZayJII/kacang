@@ -309,15 +309,6 @@ def submit_proof(cfg: dict, task: dict, solution: str, private_key: Ed25519Priva
     }, timeout=15, retries=1)
     return resp
 
-def check_allocations(agent_id: str) -> dict | None:
-    return api_get(f"/allocations/{agent_id}")
-
-def get_network_status() -> dict | None:
-    return api_get("/network/status", timeout=10, retries=2)
-
-def get_current_epoch() -> dict | None:
-    return api_get("/epoch/current", timeout=10, retries=2)
-
 # ──────────────────────────────────────────────
 #  Stats Tracker
 # ──────────────────────────────────────────────
@@ -358,7 +349,6 @@ class Stats:
 def mining_loop(cfg: dict, private_key: Ed25519PrivateKey, stats: Stats):
     sleep_interval = cfg.get("sleep_interval", 2)
     last_task_id = None
-    last_status_check = 0
     
     print(f"\n{Fore.YELLOW}🥜  Peanut Miner Started — Agent: {cfg['agent_id']}{Style.RESET_ALL}")
     print(f"{Fore.YELLOW}{'='*60}{Style.RESET_ALL}")
@@ -367,17 +357,6 @@ def mining_loop(cfg: dict, private_key: Ed25519PrivateKey, stats: Stats):
 
     while not _STOP.is_set():
         try:
-            # ── Occasional Network Status Check (every 10 minutes) ──
-            now = time.time()
-            if now - last_status_check > 600:
-                status = run_in_thread(get_network_status, timeout=15)
-                if status:
-                    log.info(
-                        f"{Fore.BLUE}[NETWORK]{Style.RESET_ALL} Active Miners: {status.get('active_miners', 'unknown')} | "
-                        f"Epoch: {status.get('current_epoch', '?')}"
-                    )
-                last_status_check = now
-
             # ── Fetch task ──
             task = run_in_thread(fetch_task, timeout=25)
 
@@ -464,12 +443,6 @@ def mining_loop(cfg: dict, private_key: Ed25519PrivateKey, stats: Stats):
     # ── Graceful shutdown ──
     log.info("Miner stopped.")
     stats.print_summary()
-    try:
-        alloc = run_in_thread(check_allocations, cfg["agent_id"], timeout=15)
-        if alloc:
-            log.info(f"Final allocations: {json.dumps(alloc, indent=2)}")
-    except BaseException:
-        pass
 
 # ──────────────────────────────────────────────
 #  Entry Point
@@ -481,7 +454,6 @@ def main():
     parser.add_argument("--keys", default=KEYS_FILE, help="Path to keys.json")
     parser.add_argument("--no-register", action="store_true", help="Skip registration")
     parser.add_argument("--no-wallet", action="store_true", help="Skip wallet update")
-    parser.add_argument("--check-alloc", action="store_true", help="Check allocations and exit")
     parser.add_argument("--log-level", default=None, help="Log level (DEBUG/INFO/WARNING)")
     args = parser.parse_args()
 
@@ -492,12 +464,6 @@ def main():
     private_key, priv_hex, pub_hex = load_keys()
     log.info(f"Agent ID  : {cfg['agent_id']}")
     log.info(f"Public Key: {pub_hex}")
-
-    # Check-only mode
-    if args.check_alloc:
-        alloc = run_in_thread(check_allocations, cfg["agent_id"], timeout=20)
-        print(json.dumps(alloc, indent=2))
-        return
 
     # Register
     if not args.no_register:
