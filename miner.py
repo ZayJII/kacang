@@ -114,24 +114,26 @@ def wait_with_countdown(seconds: int, message: str):
 
 def api_get(path: str, timeout: int = 20, retries: int = 3) -> dict | None:
     url = f"{BASE_URL}{path}"
-    for attempt in range(1, retries + 1):
+    attempt = 0
+    # For rate limits, we allow more aggressive retries than standard errors
+    max_retries = max(retries, 5)
+    
+    while attempt < max_retries:
+        attempt += 1
         try:
             r = SESSION.get(url, timeout=timeout)
             if r.status_code == 429 or r.status_code == 1015:
-                # For rate limits, we allow one extra attempt if it's the only one
-                current_retries = max(retries, 3) 
                 wait = attempt * 15
                 log.warning(f"GET {path} → Rate Limited (1015).")
                 wait_with_countdown(wait, f"Rate limited on {path}")
-                if attempt < current_retries:
-                    continue
-                break
+                continue  # Retry without incrementing standard error budget if you want, 
+                         # but here we use attempt counter for backoff intensity.
             r.raise_for_status()
             return r.json()
         except KeyboardInterrupt:
             raise
         except requests.Timeout:
-            log.debug(f"GET {path} → Timeout (attempt {attempt}/{retries})")
+            log.debug(f"GET {path} → Timeout (attempt {attempt}/{max_retries})")
         except requests.HTTPError as e:
             log.warning(f"GET {path} → HTTP {r.status_code}: {r.text[:200]}")
             if r.status_code >= 500:
@@ -139,33 +141,35 @@ def api_get(path: str, timeout: int = 20, retries: int = 3) -> dict | None:
                 continue
             break
         except Exception as e:
-            log.debug(f"GET {path} → {e} (attempt {attempt}/{retries})")
+            log.debug(f"GET {path} → {e} (attempt {attempt}/{max_retries})")
         
         if attempt < retries:
             time.sleep(5)
+        else:
+            break
     return None
 
 def api_post(path: str, payload: dict, timeout: int = 45, retries: int = 5) -> dict | None:
     url = f"{BASE_URL}{path}"
-    for attempt in range(1, retries + 1):
+    attempt = 0
+    max_retries = max(retries, 5)
+    
+    while attempt < max_retries:
+        attempt += 1
         try:
             r = SESSION.post(url, json=payload, timeout=timeout)
             if r.status_code == 429 or r.status_code == 1015:
-                # Force retry even for single-pass calls if it's a rate limit
-                current_retries = max(retries, 3)
                 wait = attempt * 20
                 log.warning(f"POST {path} → Rate Limited (1015).")
                 wait_with_countdown(wait, f"Rate limited on {path}")
-                if attempt < current_retries:
-                    continue
-                break
+                continue
             
             r.raise_for_status()
             return r.json()
         except KeyboardInterrupt:
             raise
         except requests.Timeout:
-            log.debug(f"POST {path} → Timeout (attempt {attempt}/{retries})")
+            log.debug(f"POST {path} → Timeout (attempt {attempt}/{max_retries})")
         except requests.HTTPError:
             try:
                 _raw = r.json()
@@ -185,10 +189,12 @@ def api_post(path: str, payload: dict, timeout: int = 45, retries: int = 5) -> d
                 continue
             return err_body
         except Exception as e:
-            log.debug(f"POST {path} → {e} (attempt {attempt}/{retries})")
+            log.debug(f"POST {path} → {e} (attempt {attempt}/{max_retries})")
         
         if attempt < retries:
             time.sleep(5)
+        else:
+            break
     return None
 
 # ──────────────────────────────────────────────
