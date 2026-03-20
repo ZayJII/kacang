@@ -103,16 +103,29 @@ SESSION.headers.update({
     "Connection": "keep-alive"
 })
 
+def wait_with_countdown(seconds: int, message: str):
+    """Wait for specified seconds while printing a countdown on a single line."""
+    for i in range(seconds, 0, -1):
+        if _STOP.is_set():
+            break
+        print(f"\r{Fore.YELLOW}⏳  {message} - Retrying in {i}s...{Style.RESET_ALL}   ", end="", flush=True)
+        time.sleep(1)
+    print("\r" + " " * 80 + "\r", end="", flush=True)  # clear line
+
 def api_get(path: str, timeout: int = 20, retries: int = 3) -> dict | None:
     url = f"{BASE_URL}{path}"
     for attempt in range(1, retries + 1):
         try:
             r = SESSION.get(url, timeout=timeout)
             if r.status_code == 429 or r.status_code == 1015:
+                # For rate limits, we allow one extra attempt if it's the only one
+                current_retries = max(retries, 3) 
                 wait = attempt * 15
-                log.warning(f"GET {path} → Rate Limited (1015). Backing off {wait}s...")
-                time.sleep(wait)
-                continue
+                log.warning(f"GET {path} → Rate Limited (1015).")
+                wait_with_countdown(wait, f"Rate limited on {path}")
+                if attempt < current_retries:
+                    continue
+                break
             r.raise_for_status()
             return r.json()
         except KeyboardInterrupt:
@@ -138,10 +151,14 @@ def api_post(path: str, payload: dict, timeout: int = 45, retries: int = 5) -> d
         try:
             r = SESSION.post(url, json=payload, timeout=timeout)
             if r.status_code == 429 or r.status_code == 1015:
+                # Force retry even for single-pass calls if it's a rate limit
+                current_retries = max(retries, 3)
                 wait = attempt * 20
-                log.warning(f"POST {path} → Rate Limited (1015). Backing off {wait}s...")
-                time.sleep(wait)
-                continue
+                log.warning(f"POST {path} → Rate Limited (1015).")
+                wait_with_countdown(wait, f"Rate limited on {path}")
+                if attempt < current_retries:
+                    continue
+                break
             
             r.raise_for_status()
             return r.json()
@@ -407,7 +424,7 @@ def mining_loop(cfg: dict, private_key: Ed25519PrivateKey, stats: Stats):
                     stats.record(vcus, peanut)
                     log.info(
                         f"{Fore.GREEN}✅  VERIFIED | +{vcus} VCUs | +{peanut:,} $PEANUT | "
-                        f"Tasks: {stats.solved}{Style.RESET_ALL}"
+                        f"Session: {stats.solved} tasks, {stats.total_vcus} total VCUs{Style.RESET_ALL}"
                     )
                 elif http_code == 409 or "duplicate" in err_msg.lower():
                     log.info(f"{Fore.YELLOW}⚡  Already credited (duplicate OK) — task={task_id}{Style.RESET_ALL}")
