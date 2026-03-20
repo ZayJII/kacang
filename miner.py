@@ -91,8 +91,17 @@ def run_in_thread(fn, *args, timeout: float = 20) -> dict | None:
 #  API Helpers
 # ──────────────────────────────────────────────
 
+from requests.adapters import HTTPAdapter
+
 SESSION = requests.Session()
-SESSION.headers.update({"Content-Type": "application/json"})
+# Optimize connection pool for high concurrency and reuse
+adapter = HTTPAdapter(pool_connections=20, pool_maxsize=100)
+SESSION.mount("https://", adapter)
+SESSION.headers.update({
+    "Content-Type": "application/json",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    "Connection": "keep-alive"
+})
 
 def api_get(path: str, timeout: int = 20, retries: int = 3) -> dict | None:
     url = f"{BASE_URL}{path}"
@@ -413,7 +422,13 @@ def mining_loop(cfg: dict, private_key: Ed25519PrivateKey, stats: Stats):
                 log.warning("Submit returned no response (network error?).")
 
             last_task_id = task_id
-            _STOP.wait(timeout=sleep_interval)
+            
+            # Optimization: If we just successfully verified, poll for next task immediately
+            # otherwise wait for the standard sleep interval
+            if result and result.get("status") == "verified":
+                _STOP.wait(timeout=0.2)
+            else:
+                _STOP.wait(timeout=sleep_interval)
 
         except KeyboardInterrupt:
             _STOP.set()
